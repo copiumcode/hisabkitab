@@ -44,19 +44,22 @@
         const { getFirestore, collection, doc, addDoc, onSnapshot, query, updateDoc, deleteDoc, increment, serverTimestamp, orderBy, writeBatch, getDocs } = window.firebase;
 
         // --- Helper Functions & Configuration ---
-        const firebaseConfig =  typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-hisab-kitab';
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        // Your web app's Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyB4JmGZflAoib2KP1JnwSoK3UNUpk-mQmQ",
+            authDomain: "hisabkitab-4f4e3.firebaseapp.com",
+            projectId: "hisabkitab-4f4e3",
+            storageBucket: "hisabkitab-4f4e3.firebasestorage.app",
+            messagingSenderId: "442681383857",
+            appId: "1:442681383857:web:dd1a7b1641cc359475fb90",
+            measurementId: "G-6T7J8C0MJ7"
+        };
+        const appId = 'default-hisab-kitab';
         
         // Initialize Firebase
-        let app, auth, db;
-        if (Object.keys(firebaseConfig).length > 0) {
-            app = initializeApp(firebaseConfig);
-            auth = getAuth(app);
-            db = getFirestore(app);
-        } else {
-            console.error("Firebase config is missing! Cannot initialize app.");
-        }
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
 
 
         // --- SVG Icons ---
@@ -80,23 +83,15 @@
             const [customerForAction, setCustomerForAction] = useState(null);
 
             useEffect(() => {
-                if (!auth) {
-                    setLoading(false);
-                    return;
-                }
                 const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
                     if (currentUser) {
                         setUser(currentUser);
                     } else {
-                        try {
-                           if (initialAuthToken) {
-                               await signInWithCustomToken(auth, initialAuthToken);
-                           } else {
-                               await signInAnonymously(auth);
-                           }
-                        } catch (error) {
-                            console.error("Authentication failed:", error);
-                        }
+                       try {
+                           await signInAnonymously(auth);
+                       } catch(err) {
+                           console.error("Anonymous sign in failed", err);
+                       }
                     }
                     setLoading(false);
                 });
@@ -104,19 +99,19 @@
             }, []);
 
             useEffect(() => {
-                if (!user || !db) return;
-                const customersPath = `artifacts/${appId}/users/${user.uid}/customers`;
+                if (!user) return;
+                const customersPath = `users/${user.uid}/customers`;
                 const q = query(collection(db, customersPath), orderBy("name"));
                 const unsub = onSnapshot(q, (snap) => setCustomers(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
                 return () => unsub();
             }, [user]);
 
             useEffect(() => {
-                if (!user || !selectedCustomer || !db) {
+                if (!user || !selectedCustomer) {
                     setTransactions([]);
                     return;
                 }
-                const transPath = `artifacts/${appId}/users/${user.uid}/customers/${selectedCustomer.id}/transactions`;
+                const transPath = `users/${user.uid}/customers/${selectedCustomer.id}/transactions`;
                 const q = query(collection(db, transPath), orderBy('timestamp', 'desc'));
                 const unsub = onSnapshot(q, (snap) => setTransactions(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
                 return () => unsub();
@@ -129,79 +124,82 @@
             }, { totalToGet: 0, totalToGive: 0 }), [customers]);
 
             const handleAddCustomer = async (name, phone) => {
-                if (!user || !db) return;
-                const path = `artifacts/${appId}/users/${user.uid}/customers`;
+                if (!user) return;
+                const path = `users/${user.uid}/customers`;
                 await addDoc(collection(db, path), { name, phone, balance: 0, createdAt: serverTimestamp() });
                 setAddCustomerModalOpen(false);
             };
 
             const handleEditCustomer = async (customerId, newName, newPhone) => {
-                if (!user || !customerId || !db) return;
-                const custDocRef = doc(db, `artifacts/${appId}/users/${user.uid}/customers`, customerId);
+                if (!user || !customerId) return;
+                const custDocRef = doc(db, `users/${user.uid}/customers`, customerId);
                 await updateDoc(custDocRef, { name: newName, phone: newPhone });
                 setEditCustomerModalOpen(false);
                 setCustomerForAction(null);
             };
 
             const handleDeleteCustomer = async (customerToDelete) => {
-                if (!user || !customerToDelete || !db) return;
+                if (!user || !customerToDelete) return;
                 const batch = writeBatch(db);
-                const transPath = `artifacts/${appId}/users/${user.uid}/customers/${customerToDelete.id}/transactions`;
+                const transPath = `users/${user.uid}/customers/${customerToDelete.id}/transactions`;
                 const transactionsSnapshot = await getDocs(query(collection(db, transPath)));
                 transactionsSnapshot.forEach(doc => batch.delete(doc.ref));
-                const custDocRef = doc(db, `artifacts/${appId}/users/${user.uid}/customers`, customerToDelete.id);
+                const custDocRef = doc(db, `users/${user.uid}/customers`, customerToDelete.id);
                 batch.delete(custDocRef);
                 await batch.commit();
                 setDeleteCustomerModalOpen(false);
                 setCustomerForAction(null);
+                if (selectedCustomer?.id === customerToDelete.id) {
+                    setSelectedCustomer(null);
+                }
             };
 
             const handleAddTransaction = async (type, amount, description, customTimestamp) => {
-                if (!user || !selectedCustomer || !amount || !db) return;
+                if (!user || !selectedCustomer || !amount) return;
                 const numericAmount = parseFloat(amount);
                 if (isNaN(numericAmount) || numericAmount <= 0) return;
                 const timestampToSave = customTimestamp instanceof Date && !isNaN(customTimestamp) ? customTimestamp : serverTimestamp();
-                const transPath = `artifacts/${appId}/users/${user.uid}/customers/${selectedCustomer.id}/transactions`;
+                const transPath = `users/${user.uid}/customers/${selectedCustomer.id}/transactions`;
                 await addDoc(collection(db, transPath), { type, amount: numericAmount, description, timestamp: timestampToSave });
-                const custDoc = doc(db, `artifacts/${appId}/users/${user.uid}/customers`, selectedCustomer.id);
+                const custDoc = doc(db, `users/${user.uid}/customers`, selectedCustomer.id);
                 await updateDoc(custDoc, { balance: increment(type === 'gave' ? numericAmount : -numericAmount) });
             };
 
             const handleEditTransaction = async (txToEdit, newAmountStr, newDescription, newTimestamp) => {
-                if (!user || !selectedCustomer || !txToEdit || !db) return;
+                if (!user || !selectedCustomer || !txToEdit) return;
                 const newAmount = parseFloat(newAmountStr);
                 if (isNaN(newAmount)) return;
                 const oldAmount = txToEdit.amount;
                 const txType = txToEdit.type;
                 let balanceAdjustment = newAmount - oldAmount;
                 if (txType === 'got') balanceAdjustment = -balanceAdjustment;
-                const custDoc = doc(db, `artifacts/${appId}/users/${user.uid}/customers`, selectedCustomer.id);
+                const custDoc = doc(db, `users/${user.uid}/customers`, selectedCustomer.id);
                 await updateDoc(custDoc, { balance: increment(balanceAdjustment) });
-                const transDoc = doc(db, `artifacts/${appId}/users/${user.uid}/customers/${selectedCustomer.id}/transactions`, txToEdit.id);
+                const transDoc = doc(db, `users/${user.uid}/customers/${selectedCustomer.id}/transactions`, txToEdit.id);
                 await updateDoc(transDoc, { amount: newAmount, description: newDescription, timestamp: newTimestamp });
             };
 
             const handleDeleteTransaction = async (txToDelete) => {
-                if (!user || !selectedCustomer || !txToDelete || !db) return;
+                if (!user || !selectedCustomer || !txToDelete) return;
                 const adjustment = txToDelete.type === 'gave' ? -txToDelete.amount : txToDelete.amount;
-                const custDoc = doc(db, `artifacts/${appId}/users/${user.uid}/customers`, selectedCustomer.id);
+                const custDoc = doc(db, `users/${user.uid}/customers`, selectedCustomer.id);
                 await updateDoc(custDoc, { balance: increment(adjustment) });
-                const transDoc = doc(db, `artifacts/${appId}/users/${user.uid}/customers/${selectedCustomer.id}/transactions`, txToDelete.id);
+                const transDoc = doc(db, `users/${user.uid}/customers/${selectedCustomer.id}/transactions`, txToDelete.id);
                 await deleteDoc(transDoc);
             };
 
             const handleBackupData = async () => {
-                if (!user || !db) return;
+                if (!user) return;
                 setIsBackingUp(true);
                 try {
                     const backupData = { backupDate: new Date().toISOString(), customers: [] };
-                    const customersPath = `artifacts/${appId}/users/${user.uid}/customers`;
+                    const customersPath = `users/${user.uid}/customers`;
                     const customersSnapshot = await getDocs(query(collection(db, customersPath)));
                     for (const custDoc of customersSnapshot.docs) {
                         const customerData = custDoc.data();
                         const customerEntry = { ...customerData, id: custDoc.id, transactions: [] };
                         if (customerData.createdAt?.toDate) customerEntry.createdAt = customerData.createdAt.toDate().toISOString();
-                        const transPath = `artifacts/${appId}/users/${user.uid}/customers/${custDoc.id}/transactions`;
+                        const transPath = `users/${user.uid}/customers/${custDoc.id}/transactions`;
                         const transactionsSnapshot = await getDocs(query(collection(db, transPath)));
                         transactionsSnapshot.forEach(transDoc => {
                             const transactionData = transDoc.data();
@@ -232,13 +230,6 @@
             if (loading) {
                 return <div className="flex items-center justify-center h-screen bg-black text-white">Loading...</div>;
             }
-            
-            if (!db) {
-                return <div className="flex flex-col items-center justify-center h-screen bg-black text-white p-4 text-center">
-                    <h2 className="text-2xl font-bold text-red-500 mb-4">Configuration Error</h2>
-                    <p>Firebase configuration is missing. Please add your `firebaseConfig` details to the script to run the app.</p>
-                </div>
-            }
 
             return (
                 <div className="bg-black min-h-screen text-gray-100">
@@ -259,9 +250,6 @@
             );
         }
         
-        // ... All your other components (DashboardHeader, CustomerList, etc.) go here ...
-        // I will copy them directly from the provided code.
-
         const DashboardHeader = ({ onAddCustomer, onBackup, isBackingUp, totalToGet, totalToGive }) => ( 
             <header className="mb-8">
                 <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
@@ -328,7 +316,7 @@
             const handleDelete = () => { onDeleteTransaction(selectedTransaction); setDeleteModalOpen(false); setSelectedTransaction(null); };
             
             const generatePDF = () => {
-                const { jsPDF } = window.jspdf;
+                const { jsPDF } = window;
                 const doc = new jsPDF();
                 doc.setFontSize(20); doc.setFont("helvetica", "bold"); doc.text("Transaction Report", 105, 20, { align: "center" });
                 doc.setFontSize(12); doc.setFont("helvetica", "bold"); doc.text("Customer:", 14, 40); doc.setFont("helvetica", "normal"); doc.text(customer.name, 38, 40);
